@@ -1,0 +1,5 @@
+/.flatpak-builder
+/build
+/kolibri_home
+/manifest.json
+/metainfo.xml

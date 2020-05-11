@@ -1,0 +1,10 @@
+#!/usr/bin/python3
+
+import json
+import os
+
+BASE_PATH = os.path.realpath(os.path.dirname(__file__))
+
+if __name__ == "__main__":
+    with open("{}/extensions-catalog.json".format(BASE_PATH), "r") as f:
+        print("\n".join(json.load(f).keys()))

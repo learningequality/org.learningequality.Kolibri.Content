@@ -1,0 +1,27 @@
+{
+  "id": "@ID@",
+  "branch": "@BRANCH@",
+  "build-extension": true,
+  "runtime": "org.learningequality.Kolibri",
+  "runtime-version": "stable",
+  "sdk": "org.freedesktop.Sdk//19.08",
+  "appstream-compose": false,
+  "separate-locales": false,
+  "modules": [
+    {
+      "name": "kolibri-content",
+      "buildsystem": "simple",
+      "build-commands": [
+        "find @EXPORT_PATH@/content -type f -exec sh -c 'install -D \"$0\" ${FLATPAK_DEST}/${0#@EXPORT_PATH@/}' {} \\;",
+        "install -D \"metainfo.xml\" \"${FLATPAK_DEST}/share/metainfo/@ID@.metainfo.xml\"",
+        "appstream-compose --basename=@ID@ --prefix=${FLATPAK_DEST} --origin=flatpak @ID@"
+      ],
+      "sources": [
+        {
+            "type": "dir",
+            "path": "."
+        }
+      ]
+    }
+  ]
+}
