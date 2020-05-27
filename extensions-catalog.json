@@ -1,0 +1,23 @@
+{
+    "Khan_en_database": {
+        "channels": [
+            {
+                "channel_id": "1ceff53605e55bef987d88e0908658c5",
+                "no_storage": true
+            }
+        ],
+        "metainfo_name": "Khan Academy Index"
+    },
+    "Khan_en_Resources": {
+        "channels": [
+            {
+                "channel_id": "1ceff53605e55bef987d88e0908658c5",
+                "no_database": true,
+                "node_ids": [
+                    "c4b7fbced0815809a1f7ed411f49cd9c"
+                ]
+            }
+        ],
+        "metainfo_name": "Khan Academy Resources"
+    }
+}

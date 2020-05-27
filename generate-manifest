@@ -1,0 +1,434 @@
+#!/usr/bin/python3
+
+import argparse
+import json
+import logging
+import os
+import shutil
+import subprocess
+import sys
+import traceback
+import urllib.parse
+import xml.etree.ElementTree as ET
+
+from xml.dom import minidom
+
+logging.basicConfig(format="%(levelname)s: %(message)s")
+logger = logging.getLogger(__name__)
+
+KOLIBRI_CONTENT_EXTENSION_BASE_ID = "org.learningequality.Kolibri.Content"
+MANIFEST = None
+
+BASE_PATH = os.path.realpath(os.path.dirname(__file__))
+MANIFEST_TEMPLATE_PATH = os.path.join(BASE_PATH, "manifest.json.in")
+METAINFO_PATH = os.path.join(BASE_PATH, "metainfo.xml")
+EXTENSIONS_CATALOG_PATH = os.path.join(BASE_PATH, "extensions-catalog.json")
+KOLIBRI_HOME_PATH = os.path.join(BASE_PATH, "kolibri_home")
+EXPORTED_CONTENT_PATH = os.path.join(KOLIBRI_HOME_PATH, "exported_content")
+
+METAINFO_DEFAULTS = {
+    "metadata_license": "CC0-1.0",
+    "url_homepage": "https://learningequality.org/",
+    "project_group": "Learning Equality",
+    "developer_name": "Learning Equality",
+    "categories": ["Education"],
+}
+
+
+def run_command(args, **kwargs):
+    logger.info("Running command: {}".format(args))
+    subprocess.check_call(args, **kwargs)
+
+
+def install_kolibri_flatpak():
+    # This has to be done like this to get the same Kolibri
+    # as org.learningequality.Kolibri does, so we avoid repeating
+    # the Kolibri installation procedure.
+    run_command(
+        [
+            "flatpak",
+            "remote-add",
+            "--if-not-exists",
+            "flathub",
+            "https://flathub.org/repo/flathub.flatpakrepo",
+        ]
+    )
+    run_command(
+        [
+            "flatpak",
+            "install",
+            "--noninteractive",
+            "-y",
+            "--or-update",
+            "flathub",
+            get_kolibri_flatpak_ref(),
+        ]
+    )
+
+
+def run_kolibri(args):
+    run_command(
+        [
+            "flatpak",
+            "run",
+            "--command=/app/libexec/kolibri",
+            "--filesystem={}".format(BASE_PATH),
+            get_kolibri_flatpak_ref(),
+        ]
+        + args,
+        env={"KOLIBRI_HOME": KOLIBRI_HOME_PATH},
+    )
+
+
+def format_kolibri_flags(channel, flags_to_use):
+    flags = []
+
+    for flag_name in flags_to_use:
+        flag = "--{}".format(flag_name)
+        flag_value = channel.get(flag_name)
+        if isinstance(flag_value, bool):
+            flags.append(flag)
+        elif isinstance(flag_value, str):
+            flags.extend([flag, flag_value])
+        elif isinstance(flag_value, list):
+            flags.extend([flag, ",".join(flag_value)])
+
+    return flags
+
+
+def import_channel(channel, export_path):
+    origin = channel.get("origin", "network")
+    origin_args = [origin, channel["channel_id"]]
+    if origin == "disk":
+        origin_args.append(channel["directory"])
+
+    run_kolibri(
+        ["manage", "importchannel"]
+        + format_kolibri_flags(channel, ["baseurl", "no_upgrade"])
+        + origin_args
+    )
+
+    if not channel.get("no_database", False):
+        run_kolibri(["manage", "exportchannel", channel["channel_id"], export_path])
+
+    if not channel.get("no_storage", False):
+        run_kolibri(
+            ["manage", "importcontent"]
+            + format_kolibri_flags(
+                channel,
+                [
+                    "node_ids",
+                    "exclude_node_ids",
+                    "include-unrenderable-content",
+                    "baseurl",
+                    "peer_id",
+                    "drive_id",
+                ],
+            )
+            + origin_args
+        )
+        run_kolibri(
+            ["manage", "exportcontent"]
+            + format_kolibri_flags(channel, ["node_ids", "exclude_node_ids"])
+            + [channel["channel_id"], export_path]
+        )
+
+
+def channel_spec_to_content_json(channel):
+    result = {
+        "channel_id": channel["channel_id"],
+    }
+
+    for key in ["node_ids", "exclude_node_ids"]:
+        if key in channel:
+            result[key] = channel[key]
+
+    return result
+
+
+def replace_placeholders(content, **kwargs):
+    args = {
+        "@ID@": "{}.{}".format(KOLIBRI_CONTENT_EXTENSION_BASE_ID, kwargs["id"]),
+        "@BRANCH@": kwargs["branch"],
+        "@EXPORT_PATH@": os.path.relpath(kwargs["export_path"], BASE_PATH),
+    }
+    for key in args.keys():
+        content = content.replace(key, args[key])
+    return content
+
+
+def generate_manifest(**kwargs):
+    global MANIFEST
+
+    with open(MANIFEST_TEMPLATE_PATH, "r") as ftemplate:
+        with open(os.path.splitext(MANIFEST_TEMPLATE_PATH)[0], "w") as foutput:
+            manifest = replace_placeholders(ftemplate.read(), **kwargs)
+            foutput.write(manifest)
+            MANIFEST = json.loads(manifest)
+
+
+def add_metainfo_subelement(component, args, argname, tag=None, attrs={}):
+    value = args.get("metainfo_{}".format(argname))
+    if value is None and argname in METAINFO_DEFAULTS:
+        value = METAINFO_DEFAULTS[argname]
+
+    if value is None:
+        return None
+
+    el = ET.SubElement(component, tag or argname)
+    el.text = value
+    for attr, attrvalue in attrs.items():
+        el.set(attr, attrvalue)
+    return el
+
+
+def generate_metainfo(**kwargs):
+    component = ET.Element("component")
+
+    ET.SubElement(component, "id").text = MANIFEST["id"]
+
+    add_metainfo_subelement(component, kwargs, "metadata_license")
+    add_metainfo_subelement(component, kwargs, "name")
+    add_metainfo_subelement(component, kwargs, "summary")
+    add_metainfo_subelement(component, kwargs, "description")
+    add_metainfo_subelement(component, kwargs, "project_group")
+    add_metainfo_subelement(component, kwargs, "project_license")
+    add_metainfo_subelement(component, kwargs, "developer_name")
+    add_metainfo_subelement(
+        component,
+        kwargs,
+        "icon_uri",
+        "icon",
+        {
+            "type": "remote",
+            "width": str(kwargs.get("metainfo_icon_width")),
+            "height": str(kwargs.get("metainfo_icon_height")),
+        },
+    )
+
+    categories = kwargs["metainfo_category"]
+    if categories is None:
+        categories = METAINFO_DEFAULTS["categories"]
+
+    categories_el = ET.SubElement(component, "categories")
+    for category in categories:
+        ET.SubElement(categories_el, "category").text = category
+
+    content_rating = kwargs["metainfo_content_rating"]
+    if len(content_rating) > 0:
+        content_rating_el = ET.SubElement(component, "content_rating")
+        content_rating_el.set("type", "oars-1.1")
+        for attr_name, attr_value in content_rating.items():
+            attr_el = ET.SubElement(content_rating_el, "content_attribute")
+            attr_el.set("id", attr_name)
+            attr_el.text = attr_value
+
+    xmlstring = minidom.parseString(ET.tostring(component, "utf-8")).toprettyxml(
+        indent="  "
+    )
+    with open(METAINFO_PATH, "w") as f:
+        f.write(xmlstring)
+
+
+def get_kolibri_flatpak_ref():
+    return "app/{}//{}".format(MANIFEST["runtime"], MANIFEST["runtime-version"])
+
+
+def parse_shell_safe_qs(qs):
+    params = urllib.parse.parse_qs(qs.replace(":", ";"))
+
+    # This will return the values as lists even if we have
+    # one element, we just want the first value
+    for key, value in params.items():
+        params[key] = value[0]
+
+    return params
+
+
+def parse_cli_channel_spec(channel_spec_str):
+    channel_spec = parse_shell_safe_qs(channel_spec_str)
+
+    for key, value in channel_spec.items():
+        if key in ["node_ids", "exclude_node_ids"]:
+            channel_spec[key] = value.split(",")
+        elif value == "-":
+            channel_spec[key] = True
+        else:
+            channel_spec[key] = value
+
+    return channel_spec
+
+
+def merge_args(catalog_object, cli_args):
+    args = {}
+
+    for key, cli_value in cli_args.items():
+        if key == "channel":
+            args["channels"] = list(map(parse_cli_channel_spec, cli_value))
+            args["channels"].extend(catalog_object.get("channels", []))
+        elif key == "metainfo_content_rating":
+            if cli_value is not None:
+                args[key] = parse_shell_safe_qs(cli_value)
+            else:
+                args[key] = catalog_object.get(key, {})
+        else:
+            args[key] = catalog_object.get(key)
+            if cli_value is not None:
+                args[key] = cli_value
+
+    return args
+
+
+def validate_args(args):
+    if len(args["channels"]) == 0:
+        raise ValueError("You must specify at least one channel")
+
+    for channel in args["channels"]:
+        if not channel.get("channel_id"):
+            raise ValueError("Missing channel_id in {}".format(channel))
+
+        origin = channel.get("origin", "network")
+
+        if origin not in ["network", "disk"]:
+            raise ValueError("origin is not valid for channel {}".format(channel))
+
+        if origin == "disk" and not channel.get("directory"):
+            raise ValueError(
+                "origin in 'disk' mode but 'directory' is missing for channel {}".format(
+                    channel
+                )
+            )
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        allow_abbrev=False,
+        description="Generate org.learningequality.Kolibri.Content "
+        "Flatpak manifest for selected content",
+    )
+    ap.add_argument("--verbose", "-v", action="store_true")
+    ap.add_argument(
+        "--id",
+        required=True,
+        help="the ID of the package, it is used as the extension Flatpak ID last segment. "
+        "If the ID is available in extensions-catalog.json, the arguments in that file are "
+        "used and you can still override anything using command line options",
+    )
+    ap.add_argument(
+        "--branch",
+        default="1.0",
+        help="the branch specified in the extension point definition",
+    )
+    ap.add_argument(
+        "--install-kolibri-flatpak",
+        default=False,
+        action="store_true",
+        help="automatically install org.learningequality.Kolibri from Flathub",
+    )
+    ap.add_argument(
+        "--skip-channel-import",
+        default=False,
+        action="store_true",
+        help="skip cleaning up the local Kolibri home directory and channel importing",
+    )
+    ap.add_argument(
+        "--channel",
+        action="append",
+        default=[],
+        help="specification of the channel to import, the format would be "
+        "channel_id=<channel ID>[:<parameter_key>=<parameter_value>:...]. parameter_key "
+        "is an option to be passed to import and export (channel and content) Kolibri commands "
+        "(like node_ids, baseurl, etc). The parameter_value is the value of the command "
+        "option or '-' if the option doesn't support a value. "
+        "The following options or not strictly part of the Kolibri commands but are used "
+        "to control its execution: "
+        "origin: {network,disk}: the subcommand used for importchannel and importcontent --- "
+        "directory: the directory parameter for the 'disk' origin --- "
+        "no_database: don't export the channel sqlite3 file --- "
+        "no_storage: dont't export the storage files.",
+    )
+
+    as_group = ap.add_argument_group(
+        "AppStream metadata",
+        "This arguments correspond to metadata to be shown in the Operating System Software "
+        "center and they are used to generate the extension metainfo file.\n"
+        "More information: https://www.freedesktop.org/software/appstream/docs/chap-Metadata.html",
+    )
+    as_group.add_argument("--metainfo-metadata-license")
+    as_group.add_argument("--metainfo-name")
+    as_group.add_argument("--metainfo-summary")
+    as_group.add_argument("--metainfo-description")
+    as_group.add_argument("--metainfo-icon-uri")
+    as_group.add_argument("--metainfo-icon-width", type=int)
+    as_group.add_argument("--metainfo-icon-height", type=int)
+    as_group.add_argument("--metainfo-url-homepage")
+    as_group.add_argument("--metainfo-category", action="append")
+    as_group.add_argument("--metainfo-project-group")
+    as_group.add_argument("--metainfo-project-license")
+    as_group.add_argument("--metainfo-developer-name")
+    as_group.add_argument(
+        "--metainfo-content-rating",
+        help="semicolon separated age ratings for different categories, "
+        "for example: drugs-alcohol=moderate;language-humor=mild",
+    )
+
+    cli_args = ap.parse_args()
+
+    if cli_args.verbose:
+        logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.WARNING)
+
+    logger.debug("CLI args: {}".format(vars(cli_args)))
+
+    catalog_object = {}
+    with open(EXTENSIONS_CATALOG_PATH, "r") as f:
+        extensions_catalog = json.load(f)
+        if cli_args.id in extensions_catalog:
+            logger.info("Found {} in the catalog".format(cli_args.id))
+            catalog_object = extensions_catalog[cli_args.id]
+
+    args = merge_args(catalog_object, vars(cli_args))
+
+    logger.debug("Resolved args: {}".format(args))
+    validate_args(args)
+
+    args["export_path"] = os.path.join(EXPORTED_CONTENT_PATH, args["id"])
+
+    generate_manifest(**args)
+    generate_metainfo(**args)
+
+    if args["install_kolibri_flatpak"]:
+        install_kolibri_flatpak()
+
+    if not args["skip_channel_import"]:
+        try:
+            logger.debug("Cleaning extension content export directory")
+            shutil.rmtree(args["export_path"])
+        except Exception:
+            pass
+
+        for channel in args["channels"]:
+            try:
+                import_channel(channel, args["export_path"])
+            except Exception as e:
+                raise ValueError(
+                    'Failed to import channel specification "{}": {}'.format(channel, e)
+                )
+
+        with open(os.path.join(args["export_path"], "content/content.json"), "w") as f:
+            json.dump(
+                {"channels": list(map(channel_spec_to_content_json, args["channels"]))},
+                f,
+                indent=2,
+            )
+
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Exception as e:
+        traceback.print_exc()
+        sys.exit(1)
