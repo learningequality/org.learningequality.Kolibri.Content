@@ -1,23 +1,34 @@
 {
-    "Khan_en_database": {
+    "Khan_Academy_English_US_curriculum_TFA": {
         "channels": [
             {
-                "channel_id": "1ceff53605e55bef987d88e0908658c5",
-                "no_storage": true
-            }
-        ],
-        "metainfo_name": "Khan Academy Index"
-    },
-    "Khan_en_Resources": {
-        "channels": [
-            {
-                "channel_id": "1ceff53605e55bef987d88e0908658c5",
-                "no_database": true,
+                "channel_id": "c9d7f950ab6b5a1199e3d6c10d7f0103",
                 "node_ids": [
-                    "c4b7fbced0815809a1f7ed411f49cd9c"
+                    "3cbb78540a1653f4833c911fcd871f02",
+                    "b4e759a099625ae2ba292e647224736d",
+                    "d999fb099e6056238d698672290b7505",
+                    "96ab3c24b71d5b75b44b8a623a8f62d2",
+                    "12807df96f3555fa910c5b89d1e37c5e",
+                    "281c3cbbbc035d299dbf2a50b00b68d6"
                 ]
             }
         ],
-        "metainfo_name": "Khan Academy Resources"
+        "metainfo_name": "Khan Academy (English - US curriculum)"
+    },
+    "JMAP_Regents_Exams": {
+        "channels": [
+            {
+                "channel_id": "9a46768f1ea24daa86ae693e4a04d04b"
+            }
+        ],
+        "metainfo_name": "Regents Exams"
+    },
+    "English_Language_Arts_Packet_3": {
+        "channels": [
+            {
+                "channel_id": "33e5f026479d4be58e1789b838f95610"
+            }
+        ],
+        "metainfo_name": "English Language Arts – Packet 3"
     }
 }
