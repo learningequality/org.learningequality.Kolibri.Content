@@ -49,8 +49,7 @@ def install_kolibri_flatpak():
             "flatpak",
             "remote-add",
             "--if-not-exists",
-            "--user",
-            "flathub-org_learningequality_Kolibri_Content",
+            "flathub",
             "https://flathub.org/repo/flathub.flatpakrepo",
         ]
     )
@@ -58,7 +57,6 @@ def install_kolibri_flatpak():
         [
             "flatpak",
             "install",
-            "--user",
             "--noninteractive",
             "-y",
             "--or-update",
