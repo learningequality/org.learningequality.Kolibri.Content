@@ -40,37 +40,26 @@ def run_command(args, **kwargs):
     subprocess.check_call(args, **kwargs)
 
 
-def install_kolibri_flatpak():
-    # This has to be done like this to get the same Kolibri
-    # as org.learningequality.Kolibri does, so we avoid repeating
-    # the Kolibri installation procedure.
-    run_command(
-        [
-            "flatpak",
-            "remote-add",
-            "--if-not-exists",
-            "flathub",
-            "https://flathub.org/repo/flathub.flatpakrepo",
-        ]
-    )
-    run_command(
-        [
-            "flatpak",
-            "install",
-            "--noninteractive",
-            "-y",
-            "--or-update",
-            "flathub",
-            get_kolibri_flatpak_ref(),
-        ]
-    )
+def check_kolibri():
+    try:
+        subprocess.check_output(
+            ["flatpak", "info", get_kolibri_flatpak_ref()], stderr=subprocess.PIPE
+        )
+        return True
+    except subprocess.CalledProcessError:
+        return False
 
 
 def run_kolibri(args):
+    arch = subprocess.check_output(
+        ["flatpak", "--default-arch"], encoding="utf-8",
+    ).strip()
+
     run_command(
         [
             "flatpak",
             "run",
+            "--arch={}".format(arch),
             "--command=/app/libexec/kolibri",
             "--filesystem={}".format(BASE_PATH),
             get_kolibri_flatpak_ref(),
@@ -320,12 +309,6 @@ def main():
         help="the branch specified in the extension point definition",
     )
     ap.add_argument(
-        "--install-kolibri-flatpak",
-        default=False,
-        action="store_true",
-        help="automatically install org.learningequality.Kolibri from Flathub",
-    )
-    ap.add_argument(
         "--skip-channel-import",
         default=False,
         action="store_true",
@@ -398,8 +381,14 @@ def main():
     generate_manifest(**args)
     generate_metainfo(**args)
 
-    if args["install_kolibri_flatpak"]:
-        install_kolibri_flatpak()
+    if not check_kolibri():
+        logger.error(
+            "You need to have Kolibri Flatpak installed, you can install it by running:\n\n"
+            "flatpak remote-add --if-not-exists flathub "
+            "https://flathub.org/repo/flathub.flatpakrepo\n"
+            "flatpak install flathub {}".format(get_kolibri_flatpak_ref())
+        )
+        return 1
 
     if not args["skip_channel_import"]:
         try:
