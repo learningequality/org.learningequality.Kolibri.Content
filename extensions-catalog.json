@@ -30,5 +30,22 @@
             }
         ],
         "metainfo_name": "English Language Arts – Packet 3"
+    },
+    "Endless_Key_content": {
+        "channels": [
+            {
+                "//": "Educational content",
+                "channel_id": "d29581bbf4394456971b8cb807219c39"
+            },
+            {
+                "//": "Getting started documentation in English and Spanish",
+                "channel_id": "e8a879742b2249a0a4b890f9903916f7",
+                "node_ids": [
+                    "3b909a18242c48208dbc49d06bc48162",
+                    "6e8f60c6b9c841969853d48f4eff22cf"
+                ]
+            }
+        ],
+        "metainfo_name": "Endless Key content"
     }
 }
