@@ -60,7 +60,7 @@ def run_kolibri(args):
             "flatpak",
             "run",
             "--arch={}".format(arch),
-            "--command=/app/libexec/kolibri",
+            "--command=/app/bin/kolibri",
             "--filesystem={}".format(BASE_PATH),
             get_kolibri_flatpak_ref(),
         ]
